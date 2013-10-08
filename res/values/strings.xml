@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="loading_eBooks">Loading eBooks</string>
+    <string name="loading_image">Loading image</string>
+    <string name="app_name">EBookListingDB</string>
+    <string name="action_settings">Settings</string>
+    <string name="title_section1">Sort by Name</string>
+    <string name="title_section2">Sort by Date</string>
+
+</resources>
