@@ -1,15 +1,19 @@
 package com.example.ebooklistingdb;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 
 import android.annotation.TargetApi;
 import android.app.ActionBar;
+import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.util.Log;
@@ -23,7 +27,9 @@ import android.widget.ListView;
 import android.widget.TextView;
 
 import com.dropbox.client2.DropboxAPI;
+import com.dropbox.client2.DropboxAPI.Entry;
 import com.dropbox.client2.android.AndroidAuthSession;
+import com.dropbox.client2.exception.DropboxException;
 import com.dropbox.client2.session.AccessTokenPair;
 import com.dropbox.client2.session.AppKeyPair;
 import com.dropbox.client2.session.Session.AccessType;
@@ -63,6 +69,22 @@ public class MainActivity extends FragmentActivity implements
 	private static ImageView coverImage; // To place the cover photo of the
 											// ebook selected.
 
+	
+	// Alert dialog manager
+	AlertDialogManager alert = new AlertDialogManager();
+	
+	
+	// Connection detector
+	private ConnectionDetector cd;
+	
+	
+	//Shared list to read/write EPUB 
+	private BufferEPUBList mBuffer;
+	//Handler to communicate data changes (new ebooks) to UI thread.
+	private Handler handler;
+	
+	
+	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -71,7 +93,11 @@ public class MainActivity extends FragmentActivity implements
 		context = this.getApplicationContext();
 		coverImage = (ImageView) findViewById(R.id.imCoverEBook);
 		listview = (ListView) findViewById(R.id.listView1);
-
+		//cd = new ConnectionDetector(context);
+		handler = new Handler();
+		mBuffer = new BufferEPUBList();
+		
+		
 		// Set up the action bar to show a dropdown list.
 		final ActionBar actionBar = getActionBar();
 		actionBar.setDisplayShowTitleEnabled(false);
@@ -86,6 +112,18 @@ public class MainActivity extends FragmentActivity implements
 								getString(R.string.title_section1),
 								getString(R.string.title_section2), }), this);
 
+		
+		// Check if Internet present
+	/*	if (!cd.isConnectingToInternet()) {
+			// Internet Connection is not present
+			alert.showAlertDialog(MainActivity.this,
+					"Internet Connection Error",
+					"Please connect to working Internet connection", false);
+			// stop executing code by return
+			return;
+		}*/
+				
+		
 		AndroidAuthSession session = buildSession();
 		mDBApi = new DropboxAPI<AndroidAuthSession>(session);
 
@@ -126,26 +164,139 @@ public class MainActivity extends FragmentActivity implements
 
 		return session;
 	}
+	
+	
+	
+	/**
+	 * Task readEBooksTask , get all ebooks of DropBox from the root directory "/" (include folder and subfolders)
+	 *  and write them on a buffer.
+	 * **/
+	class readEBooksTask implements Runnable {
+		
+		
+		/**
+		 * search all ebooks of DropBox from the root directory "/" (include folder and subfolders)
+		 * **/
+		public void seachEBooks(String path) throws InterruptedException {
+			try {
+				//Get entry from dropbox
+				Entry booksEntry = MainActivity.mDBApi.metadata(path, 100, null,
+						true, null);
 
+				for (Entry ent : booksEntry.contents) {
+					Log.i("seaching EBooks in :", ent.path);
+					if (ent.isDir) { // Recursive call is the entry is a directory
+						seachEBooks(ent.path);
+						Log.i(Thread.currentThread().getName(), "Sleep 100"); 
+						Thread.sleep(100);//Allow other threads get the cpu .
+					} else { //Save the ebook in the buffet.
+						Log.i(Thread.currentThread().getName(), ent.fileName());
+						mBuffer.addnewEBook(new EBook(ent.clientMtime, ent
+								.fileName(), ent.path));
+					}
+				}
+				
+			} catch (DropboxException e) {
+				mBuffer.setcompleted(true);
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+	}
+		
+		
+		public void stop(){
+			Thread.currentThread().interrupt();			
+		}
+		
+		@Override		
+		public void run() {		
+	
+			while (!mBuffer.iscomplete()){
+					try {
+						seachEBooks("/");
+						mBuffer.setcompleted(true); //At this point tree folder has been read. So unlook the condition to stop reading.
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}									
+			}
+		}
+	}
+	
+	
+	/**
+	 * Task writeEBooksTask , is reading ebook from a buffer and update the listview using a UI handler. 
+	 * **/
+	class writeEBooksTask implements Runnable {
+				
+		public void stop(){
+			Thread.currentThread().interrupt();			
+		}
+				
+		@Override		
+		public void run() {			
+			while (!mBuffer.iscomplete()){
+					try {
+						Thread.sleep(100);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					if(mBuffer.newdataPresent()){//upload lisview only when new data present.
+						handler.post(new Runnable() {
+							@Override
+							public void run() {								
+									Log.i(Thread.currentThread().getName(), "Handler, uploading listview");	
+									List<EBook> listEbook = (List<EBook>) mBuffer.getEBookList().clone();
+									
+									//This is to avoid any automatic movement of the scroll when new data is uploaded. (it is possible scrolling 
+									//using fingers).
+									if (listview.getAdapter() == null) {
+										RowArrayAdapter eventLogAdapter = new RowArrayAdapter(context, listEbook);
+										listview.setAdapter(eventLogAdapter);
+									} else {
+									    ((RowArrayAdapter)listview.getAdapter()).refill(listEbook);
+									}
+		
+								}
+							});
+						}
+			}
+		}
+				
+	}
+	
+	
+	
 	protected void onResume() {
 		super.onResume();
 
 		if (mDBApi.getSession().authenticationSuccessful()) {
 			try {
+				Log.i("DbAuthLog", "Succesfull authenticating");
 				// Required to complete auth, sets the access token on the
 				// session
 				mDBApi.getSession().finishAuthentication();
 
-				// Store it locally in our app for later use
+				// Store it locally  for later use
 				TokenPair tokens = mDBApi.getSession().getAccessTokenPair();
 				storeKeys(tokens.key, tokens.secret);
 				mLoggedIn = true;
-
-				ListBooksAsynTask task = new ListBooksAsynTask(context,
-						listview, myadapter);
-				task.execute(new String[] { "List AsynTask" });
-
-				Log.i("DbAuthLog", "Succesfull authenticating");
+				
+				//Thread to read ebook from DropBox
+				Thread readEBooksTask = new Thread(new readEBooksTask());
+				readEBooksTask.setName("Productor");
+				
+				//Thread to write ebooks in the listview while readEBookTask is getting new ones.
+				Thread writeEBooksTask = new Thread(new writeEBooksTask());
+				writeEBooksTask.setName("Consumidor");
+				
+				
+				//Launch threads. ReadEBooksTask gets ebooks from DropBox and put its on a buffer , when new data is present  
+				//writeEBooksTask is able to upload the listview using a UI handler.
+				readEBooksTask.start();
+				writeEBooksTask.start();
+				
 
 			} catch (IllegalStateException e) {
 				Log.i("DbAuthLog", "Error authenticating", e);
@@ -288,5 +439,7 @@ public class MainActivity extends FragmentActivity implements
 			return rootView;
 		}
 	}
+
+
 
 }

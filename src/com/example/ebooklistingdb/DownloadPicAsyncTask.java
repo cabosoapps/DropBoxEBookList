@@ -30,12 +30,19 @@ class DownloadPicAsyncTask extends AsyncTask<String, Void, String> {
 	DropboxFileInfo info;
 	Bitmap coverImage;
 	ProgressDialog dialog;
-	private static Context context;
+	private Context context;
 	View view;
 
+	// Connection detector
+	ConnectionDetector cd;
+	// Alert dialog manager
+	AlertDialogManager alert = new AlertDialogManager();
+	
+	
 	public DownloadPicAsyncTask(Context context, View view) {
 		this.context = context;
 		this.view = view;
+		this.cd = new ConnectionDetector(context);
 	}
 
 	@Override
