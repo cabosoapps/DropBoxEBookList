@@ -7,8 +7,12 @@ import java.util.List;
 
 import android.annotation.TargetApi;
 import android.app.ActionBar;
+import android.app.AlertDialog;
 import android.app.ProgressDialog;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.SharedPreferences.Editor;
 import android.os.Build;
@@ -17,6 +21,7 @@ import android.os.Handler;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.View;
@@ -25,6 +30,7 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.dropbox.client2.DropboxAPI;
 import com.dropbox.client2.DropboxAPI.Entry;
@@ -38,13 +44,9 @@ import com.dropbox.client2.session.TokenPair;
 public class MainActivity extends FragmentActivity implements
 		ActionBar.OnNavigationListener {
 
-	/**
-	 * The serialization (saved instance state) Bundle key representing the
-	 * current dropdown position.
-	 */
 	private static final String STATE_SELECTED_NAVIGATION_ITEM = "selected_navigation_item";
 
-	ListView listview;
+	private ListView listview;
 
 	final static private String APP_KEY = "pb1ydx24ng860k8";
 	final static private String APP_SECRET = "2j85g6czwpb50vm";
@@ -54,13 +56,11 @@ public class MainActivity extends FragmentActivity implements
 	final static private String ACCESS_KEY_NAME = "ACCESS_KEY";
 	final static private String ACCESS_SECRET_NAME = "ACCESS_SECRET";
 
-	final static public int MAX_FILES = 100;
-
 	// In the class declaration section:
 	public static DropboxAPI<AndroidAuthSession> mDBApi;
 
 	private boolean mLoggedIn;
-	// private boolean mSorterAsc = true;
+
 	private static Context context;
 
 	public static RowArrayAdapter myadapter;
@@ -68,22 +68,19 @@ public class MainActivity extends FragmentActivity implements
 
 	private static ImageView coverImage; // To place the cover photo of the
 											// ebook selected.
-
-	
-	// Alert dialog manager
-	AlertDialogManager alert = new AlertDialogManager();
-	
 	
 	// Connection detector
-	private ConnectionDetector cd;
-	
+	private ConnectionDetector cd;	
 	
 	//Shared list to read/write EPUB 
 	private BufferEPUBList mBuffer;
 	//Handler to communicate data changes (new ebooks) to UI thread.
 	private Handler handler;
 	
+	public static ProgressDialog dialog;
+
 	
+	//****************************FUNCTIONS****************************
 	
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -93,7 +90,7 @@ public class MainActivity extends FragmentActivity implements
 		context = this.getApplicationContext();
 		coverImage = (ImageView) findViewById(R.id.imCoverEBook);
 		listview = (ListView) findViewById(R.id.listView1);
-		//cd = new ConnectionDetector(context);
+		cd = new ConnectionDetector(context);
 		handler = new Handler();
 		mBuffer = new BufferEPUBList();
 		
@@ -112,17 +109,7 @@ public class MainActivity extends FragmentActivity implements
 								getString(R.string.title_section1),
 								getString(R.string.title_section2), }), this);
 
-		
-		// Check if Internet present
-	/*	if (!cd.isConnectingToInternet()) {
-			// Internet Connection is not present
-			alert.showAlertDialog(MainActivity.this,
-					"Internet Connection Error",
-					"Please connect to working Internet connection", false);
-			// stop executing code by return
-			return;
-		}*/
-				
+			
 		
 		AndroidAuthSession session = buildSession();
 		mDBApi = new DropboxAPI<AndroidAuthSession>(session);
@@ -132,6 +119,58 @@ public class MainActivity extends FragmentActivity implements
 
 	}
 
+	
+	protected void onResume() {
+		super.onResume();
+
+		//Refresh list 
+		mBuffer.clearBuffer();
+		
+		// Check if Internet present
+		if (!cd.isConnectingToInternet()) {
+			TextView tvLoading = (TextView) findViewById(R.id.tvLoading);
+			tvLoading.setText(getString(R.string.no_internet));		          
+			return;
+		}
+		
+		if (mDBApi.getSession().authenticationSuccessful()) {
+			try {
+				Log.i("DbAuthLog", "Succesfull authenticating");
+				// Required to complete auth, sets the access token on the
+				// session
+				mDBApi.getSession().finishAuthentication();
+
+				// Store it locally  for later use
+				TokenPair tokens = mDBApi.getSession().getAccessTokenPair();
+				storeKeys(tokens.key, tokens.secret);
+				mLoggedIn = true;
+				
+				//Thread to read ebook from DropBox
+				Thread readEBooksTask = new Thread(new readEBooksTask());
+				readEBooksTask.setName("Productor");
+				
+				//Thread to write ebooks in the listview while readEBookTask is getting new ones.
+				Thread writeEBooksTask = new Thread(new writeEBooksTask());
+				writeEBooksTask.setName("Consumidor");
+				
+				
+				TextView tvLoading = (TextView) findViewById(R.id.tvLoading);				
+				tvLoading.setText(getString(R.string.loading_eBooks));
+				
+				//Launch threads. ReadEBooksTask gets ebooks from DropBox and put its on a buffer , when new data is present  
+				//writeEBooksTask is able to upload the listview using a UI handler.
+				readEBooksTask.start();
+				writeEBooksTask.start();
+				
+
+			} catch (IllegalStateException e) {
+				Log.i("DbAuthLog", "Error authenticating", e);
+			}
+
+		}
+	}
+	
+	
 	/**
 	 * FUNCTION: Context getAppContext OBJECTIVE: Get the context of the
 	 * MainActivity from another point RETURN: The context of the MainActivity
@@ -164,7 +203,6 @@ public class MainActivity extends FragmentActivity implements
 
 		return session;
 	}
-	
 	
 	
 	/**
@@ -228,7 +266,7 @@ public class MainActivity extends FragmentActivity implements
 	 * Task writeEBooksTask , is reading ebook from a buffer and update the listview using a UI handler. 
 	 * **/
 	class writeEBooksTask implements Runnable {
-				
+		TextView ebookNumber = (TextView) findViewById(R.id.tvEBooksNumber);		
 		public void stop(){
 			Thread.currentThread().interrupt();			
 		}
@@ -244,67 +282,54 @@ public class MainActivity extends FragmentActivity implements
 					}
 					if(mBuffer.newdataPresent()){//upload lisview only when new data present.
 						handler.post(new Runnable() {
+							
 							@Override
 							public void run() {								
 									Log.i(Thread.currentThread().getName(), "Handler, uploading listview");	
 									List<EBook> listEbook = (List<EBook>) mBuffer.getEBookList().clone();
 									
+									
 									//This is to avoid any automatic movement of the scroll when new data is uploaded. (it is possible scrolling 
 									//using fingers).
 									if (listview.getAdapter() == null) {
-										RowArrayAdapter eventLogAdapter = new RowArrayAdapter(context, listEbook);
-										listview.setAdapter(eventLogAdapter);
+										TextView tvLoading = (TextView) findViewById(R.id.tvLoading);
+										tvLoading.setVisibility(TextView.GONE);
+										
+										myadapter = new RowArrayAdapter(context, listEbook);
+										listview.setAdapter(myadapter);
+										
 									} else {
+										//upload listview and ebooks number.
+										ebookNumber.setText(mBuffer.getEBooksNumber() + " EBooks");
 									    ((RowArrayAdapter)listview.getAdapter()).refill(listEbook);
 									}
 		
 								}
 							});
 						}
+					
+			}
+			if(mBuffer.getEBooksNumber() == 0){//Empty list
+				handler.post(new Runnable() {					
+					@Override
+					public void run() {								
+								Log.i(Thread.currentThread().getName(), "Handler, no ebook found");	
+								TextView tvLoading = (TextView) findViewById(R.id.tvLoading);
+								tvLoading.setText(getString(R.string.empty_list));
+		
+
+						}
+					});
+				
+				
+				
+				
 			}
 		}
 				
 	}
 	
 	
-	
-	protected void onResume() {
-		super.onResume();
-
-		if (mDBApi.getSession().authenticationSuccessful()) {
-			try {
-				Log.i("DbAuthLog", "Succesfull authenticating");
-				// Required to complete auth, sets the access token on the
-				// session
-				mDBApi.getSession().finishAuthentication();
-
-				// Store it locally  for later use
-				TokenPair tokens = mDBApi.getSession().getAccessTokenPair();
-				storeKeys(tokens.key, tokens.secret);
-				mLoggedIn = true;
-				
-				//Thread to read ebook from DropBox
-				Thread readEBooksTask = new Thread(new readEBooksTask());
-				readEBooksTask.setName("Productor");
-				
-				//Thread to write ebooks in the listview while readEBookTask is getting new ones.
-				Thread writeEBooksTask = new Thread(new writeEBooksTask());
-				writeEBooksTask.setName("Consumidor");
-				
-				
-				//Launch threads. ReadEBooksTask gets ebooks from DropBox and put its on a buffer , when new data is present  
-				//writeEBooksTask is able to upload the listview using a UI handler.
-				readEBooksTask.start();
-				writeEBooksTask.start();
-				
-
-			} catch (IllegalStateException e) {
-				Log.i("DbAuthLog", "Error authenticating", e);
-			}
-
-		}
-	}
-
 	private String[] getKeys() {
 		SharedPreferences prefs = getSharedPreferences(ACCOUNT_PREFS_NAME, 0);
 		String key = prefs.getString(ACCESS_KEY_NAME, null);
@@ -353,15 +378,16 @@ public class MainActivity extends FragmentActivity implements
 			}
 		};
 	}
-
-	public Comparator<EBook> sortTitleDes() {
+		
+	public Comparator<EBook> sortDateAsc() {
 		return new Comparator<EBook>() {
 			public int compare(EBook object1, EBook object2) {
-				return object2.title.compareToIgnoreCase(object1.title);
+				return object1.time.compareToIgnoreCase(object2.time);
 
 			}
 		};
 	}
+
 
 	/**
 	 * Backward-compatible version of {@link ActionBar#getThemedContext()} that
@@ -404,12 +430,18 @@ public class MainActivity extends FragmentActivity implements
 	public boolean onNavigationItemSelected(int position, long id) {
 		// When the given dropdown item is selected, show its contents in the
 		// container view.
-		Fragment fragment = new DummySectionFragment();
-		Bundle args = new Bundle();
-		args.putInt(DummySectionFragment.ARG_SECTION_NUMBER, position + 1);
-		fragment.setArguments(args);
-		getSupportFragmentManager().beginTransaction()
-				.replace(R.id.container, fragment).commit();
+		if(myadapter != null){
+			if (id == 0){
+				myadapter.sort(sortTitleAsc());
+				myadapter.notifyDataSetChanged();			
+			}
+			else{
+				myadapter.sort(sortDateAsc());
+				myadapter.notifyDataSetChanged();
+				
+			}
+		}
+		
 		return true;
 	}
 
@@ -427,17 +459,6 @@ public class MainActivity extends FragmentActivity implements
 		public DummySectionFragment() {
 		}
 
-		@Override
-		public View onCreateView(LayoutInflater inflater, ViewGroup container,
-				Bundle savedInstanceState) {
-			View rootView = inflater.inflate(R.layout.fragment_main_dummy,
-					container, false);
-			TextView dummyTextView = (TextView) rootView
-					.findViewById(R.id.section_label);
-			dummyTextView.setText(Integer.toString(getArguments().getInt(
-					ARG_SECTION_NUMBER)));
-			return rootView;
-		}
 	}
 
 

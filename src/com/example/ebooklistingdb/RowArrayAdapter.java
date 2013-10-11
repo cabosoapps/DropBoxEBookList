@@ -41,8 +41,9 @@ public class RowArrayAdapter extends ArrayAdapter<EBook> {
 
 		// Set EBook file name
 		TextView textView = (TextView) rowView.findViewById(R.id.bookTitle);
-		//textView.setText(values[position].title);
-		textView.setText(ebookList.get(position).title);
+
+		String noExtesion = ebookList.get(position).title;
+		textView.setText(noExtesion.substring(0, noExtesion.lastIndexOf('.')));
 
 		// Set Icon to EBook
 		ImageView iconImage = (ImageView) rowView.findViewById(R.id.lvIconEBook);
@@ -52,7 +53,7 @@ public class RowArrayAdapter extends ArrayAdapter<EBook> {
 		// Each icon needs to pass to the construct gestureDetector listener the
 		// ImageView to be showed and the cover image path.
 		//final GestureDetector gestureDetector = new GestureDetector(context,new GestureListener(coverImage, values[position].path));
-		final GestureDetector gestureDetector = new GestureDetector(context,new GestureListener(coverImage, ebookList.get(position).path));
+		final GestureDetector gestureDetector = new GestureDetector(context,new GestureListener(coverImage, ebookList.get(position).path,context));
 		
 		iconImage.setOnTouchListener(new OnTouchListener() {
 			@Override

@@ -26,34 +26,27 @@ import com.dropbox.client2.exception.DropboxException;
 
 // AsyncTask download the cover pic of an EPUB and show it in an imageView
 class DownloadPicAsyncTask extends AsyncTask<String, Void, String> {
-	FileOutputStream outputStreamBookFile;
-	DropboxFileInfo info;
-	Bitmap coverImage;
-	ProgressDialog dialog;
+	
+	private FileOutputStream outputStreamBookFile;
+	private DropboxFileInfo info;
+	private Bitmap coverImage;
 	private Context context;
-	View view;
-
-	// Connection detector
-	ConnectionDetector cd;
-	// Alert dialog manager
-	AlertDialogManager alert = new AlertDialogManager();
+	private View view;
 	
 	
 	public DownloadPicAsyncTask(Context context, View view) {
 		this.context = context;
 		this.view = view;
-		this.cd = new ConnectionDetector(context);
 	}
 
 	@Override
 	protected void onPreExecute() {
-		// dialog = ProgressDialog.show(context, null,
-		// context.getString(R.string.loading_image), true);
+	//	dialog = ProgressDialog.show(context, "Progress Dialog Title Text","Process Description Text", true);		 
 	}
 
 	@Override
 	protected String doInBackground(String... urls) {
-
+		
 		String eBookUrl = "";
 		for (String url : urls) {
 			eBookUrl = context.getCacheDir() + File.separator
@@ -113,8 +106,6 @@ class DownloadPicAsyncTask extends AsyncTask<String, Void, String> {
 
 			ImageView mImage = (ImageView) view.findViewById(R.id.imCoverEBook);
 			mImage.setImageBitmap(coverImage);
-
-			// dialog.dismiss();
 
 		} catch (IOException e) {
 			Log.e("epublib", e.getMessage());

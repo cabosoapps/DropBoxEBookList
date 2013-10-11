@@ -11,8 +11,8 @@ public class BufferEPUBList {
 
     private ArrayList<EBook> arrayListEBookList;
     private boolean  completed;
-    private EBook eBookList[];
     private boolean newdata;
+    
     
     
     
@@ -20,6 +20,17 @@ public class BufferEPUBList {
     	this.arrayListEBookList = new ArrayList<EBook>();
     	this.completed = false;
     	this.newdata = false;
+    }
+    
+    public synchronized int getEBooksNumber(){
+    	return arrayListEBookList.size();
+
+    }
+    
+    public  void clearBuffer(){
+    	arrayListEBookList.clear();
+    	completed = false;
+    	newdata = false;
     }
     
     

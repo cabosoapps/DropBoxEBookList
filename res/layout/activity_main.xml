@@ -4,7 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context=".MainActivity"
-    tools:ignore="MergeRootFrame" 
+    tools:ignore="MergeRootFrame"
+    android:background="@drawable/row_style" 
     android:layout_gravity="right">
 
     <LinearLayout
@@ -18,12 +19,19 @@
             android:layout_height="230dp"
             android:src="@drawable/ebook" />
 
-       <!--   <Button
-            android:id="@+id/button1"
+        <TextView
+            android:id="@+id/tvEBooksNumber"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Button"
-            android:visible="false" /> -->
+            android:gravity="right"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <TextView
+            android:id="@+id/tvLoading"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textAppearance="?android:attr/textAppearanceLarge" />
 
         <ListView
             android:id="@+id/listView1"
@@ -31,6 +39,9 @@
             android:layout_height="399dp"
             android:headerDividersEnabled="true" >
         </ListView>
+        
+        
+        
     </LinearLayout>
 
 </FrameLayout>
